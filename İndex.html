@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Savunmacılar: Ramazan Özel</title>
+    <style>
+        body { margin: 0; background: #020210; color: white; font-family: 'Arial Black', sans-serif; overflow: hidden; touch-action: none; }
+        
+        /* Ramazan Temalı Menü */
+        #menu-screen { position: absolute; width: 100%; height: 100%; background: radial-gradient(circle at top, #1a1a40, #020210); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 500; }
+        .adv-btn { width: 280px; padding: 20px; margin: 15px; font-size: 20px; color: white; border: 3px solid #f1c40f; border-radius: 20px; cursor: pointer; text-align: center; box-shadow: 0 0 15px #f1c40f; }
+        #adv-1 { background: #1b4f72; }
+        #adv-2 { background: #333; opacity: 0.6; cursor: not-allowed; }
+        #adv-2.unlocked { background: #78281f; opacity: 1; cursor: pointer; }
+
+        /* Oyun Arayüzü */
+        #hud { position: absolute; top: 0; width: 100%; height: 60px; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: space-around; border-bottom: 2px solid #f1c40f; z-index: 10; }
+        #iftar-timer { color: #f1c40f; font-size: 18px; text-shadow: 0 0 5px #fff; }
+        #shop { position: absolute; bottom: 0; width: 100%; height: 130px; background: #050505; display: none; overflow-x: auto; gap: 10px; padding: 5px; border-top: 2px solid #f1c40f; z-index: 10; }
+        .unit { min-width: 90px; height: 115px; background: #1a1a1a; border: 2px solid #333; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        
+        canvas { display: none; background: url('https://www.transparenttextures.com/patterns/stardust.png'), #020210; }
+        #msg-box { position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%); text-align: center; display: none; z-index: 600; pointer-events: none; text-shadow: 0 0 20px #000; }
+        #moon { position: absolute; top: 80px; left: 30px; font-size: 50px; display: none; z-index: 1; }
+    </style>
+</head>
+<body>
+
+<div id="menu-screen">
+    <h1 style="color:#f1c40f; font-size: 45px;">🌙 RAMAZAN ÖZEL</h1>
+    <div id="adv-1" class="adv-btn" onclick="tryStart(1)">MACERA 1<br><small>Final: Dr. Düşman</small></div>
+    <div id="adv-2" class="adv-btn" onclick="tryStart(2)">🔒 MACERA 2<br><small id="lock-text">Level 50 Boss'unu Yen!</small></div>
+</div>
+
+<div id="msg-box"></div>
+<div id="moon">🌙</div>
+
+<div id="hud">
+    <div id="iftar-timer">🕌 İFTARA: <span id="sec">60</span>s</div>
+    <div style="font-size: 18px; color:#f1c40f">LVL: <span id="lTxt">1</span></div>
+    <div>💰 <span id="gTxt">3500</span> | ❤️ <span id="hTxt">100</span></div>
+</div>
+
+<canvas id="game"></canvas>
+<div id="shop"></div>
+
+<script>
+let gold = 3500, hp = 100, level = 1, frame = 0, currentAdv = 1, bossSpawned = false;
+let iftarCountdown = 60; // 60 saniye sonra iftar
+let adv2Unlocked = localStorage.getItem('adv2Unlocked') === 'true';
+let defenders = [], enemies = [], projectiles = [], iceTrails = [];
+let selU = null, selC = 0, spawnRate = 110;
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight - 190;
+
+if(adv2Unlocked) unlockAdv2();
+
+function unlockAdv2() {
+    const b = document.getElementById('adv-2');
+    b.classList.add('unlocked');
+    b.innerHTML = "MACERA 2<br><small>İMAM POWER MODU</small>";
+}
+
+function showMsg(text, color, size, time=3000) {
+    const box = document.getElementById('msg-box');
+    box.innerHTML = text; box.style.color = color; box.style.fontSize = size;
+    box.style.display = 'block';
+    setTimeout(() => box.style.display = 'none', time);
+}
+
+const shopData = {
+    haci: {n: "Hacı", c: 1200, e: "🕋", t: "haci"},
+    pideci: {n: "Pideci", c: 600, e: "🥙", t: "pide"}, // Pide atar
+    davulcu: {n: "Davulcu", c: 800, e: "🥁", t: "drummer"}, // Hızlandırır
+    biber: {n: "İftar Bomb", c: 500, e: "🌶️", t: "bomb"}
+};
+
+const enemyTypes = [
+    {a: "🕴️", hp: 4000, s: 1.5, type: "mj"},
+    {a: "👹👹", hp: 15000, s: 0.4, type: "giant"},
+    {a: "🚗", hp: 4000, s: 3.0, type: "car"},
+    {a: "👨‍⚕️👹", hp: 100000, s: 0.2, type: "boss"} 
+];
+
+function tryStart(adv) {
+    if(adv === 2 && !adv2Unlocked) return;
+    currentAdv = adv;
+    document.getElementById('menu-screen').style.display = 'none';
+    document.getElementById('hud').style.display = 'flex';
+    document.getElementById('shop').style.display = 'flex';
+    document.getElementById('moon').style.display = 'block';
+    canvas.style.display = 'block';
+    updateShop();
+    
+    // İftar Geri Sayımı
+    setInterval(() => {
+        if(iftarCountdown > 0) {
+            iftarCountdown--;
+            document.getElementById('sec').innerText = iftarCountdown;
+        } else {
+            triggerIftar();
+            iftarCountdown = 120; // Bir sonraki iftara 2 dakika
+        }
+    }, 1000);
+
+    loop();
+}
+
+function triggerIftar() {
+    showMsg("🕌 ALLAHU EKBER! 🕌<br>İFTAR VAKTİ!", "#27ae60", "40px", 5000);
+    enemies = []; // Tüm düşmanlar iftar sevinciyle gider
+    gold += 2000;
+    document.getElementById('gTxt').innerText = gold;
+}
+
+function updateShop() {
+    const s = document.getElementById('shop'); s.innerHTML = "";
+    for(let k in shopData) {
+        let d = document.createElement('div'); d.className = "unit";
+        d.innerHTML = `<span style="font-size:35px;">${shopData[k].e}</span><br><small>${shopData[k].c}G</small>`;
+        d.onclick = () => { selU = k; selC = shopData[k].c; };
+        s.appendChild(d);
+    }
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+    if(selU && gold >= selC) {
+        defenders.push({ x: e.clientX, y: e.clientY, ...shopData[selU], timer: 0 });
+        gold -= selC; document.getElementById('gTxt').innerText = gold;
+    }
+});
+
+function loop() {
+    frame++;
+    ctx.clearRect(0,0, canvas.width, canvas.height);
+
+    // Seviye ve Zorluk
+    if(frame % 800 === 0 && !bossSpawned) {
+        level++;
+        document.getElementById('lTxt').innerText = level;
+        spawnRate = Math.max(35, spawnRate - 4);
+        if(level === 50 && currentAdv === 1) {
+            bossSpawned = true;
+            showMsg("⚠️ DR. DÜŞMAN İFTARI BOZMAYA GELİYOR! ⚠️", "red", "30px", 4000);
+            enemies.push({ x: canvas.width + 100, y: canvas.height/2, ...enemyTypes[3], curHp: 100000, maxHp: 100000 });
+        }
+    }
+
+    if (frame % spawnRate === 0 && !bossSpawned) {
+        let et = enemyTypes[Math.floor(Math.random()*3)];
+        enemies.push({ x: canvas.width + 50, y: Math.random()*(canvas.height-100)+50, ...et, curHp: et.hp + (level * 600), slow: 1 });
+    }
+
+    defenders.forEach((d, di) => {
+        ctx.font = "40px Arial"; ctx.fillText(d.e, d.x-20, d.y+15);
+        d.timer++;
+
+        if(d.t === "haci") {
+            enemies.forEach(en => { if(Math.hypot(en.x-d.x, en.y-d.y) < 140) { en.curHp -= (20 + level); en.slow = 0.4; } });
+        }
+
+        if(d.t === "pide" && d.timer % 45 === 0) {
+            projectiles.push({x:d.x, y:d.y, vx:8, d:400, type:"pide"});
+        }
+
+        if(d.t === "bomb") {
+            let en = enemies.find(e => Math.hypot(e.x-d.x, e.y-d.y) < 60);
+            if(en) {
+                showMsg("💥 İMAM POWER! 💥", "#ff4500", "50px");
+                enemies.forEach(e => { if(Math.hypot(e.x-d.x, e.y-d.y)<250) e.curHp -= 40000; });
+                defenders.splice(di, 1);
+                setTimeout(() => { for(let j=0; j<15; j++) enemies.push({ x: canvas.width+100, y: Math.random()*canvas.height, ...enemyTypes[1], curHp: 20000 }); }, 2000);
+            }
+        }
+    });
+
+    projectiles.forEach((p, pi) => {
+        p.x += p.vx;
+        ctx.font = "20px Arial"; ctx.fillText("🥙", p.x, p.y);
+        enemies.forEach(en => {
+            if(Math.hypot(p.x-en.x, p.y-en.y) < 40) {
+                en.curHp -= p.d; en.slow = 0.5; // Pide yavaşlatır
+                projectiles.splice(pi, 1);
+            }
+        });
+    });
+
+    enemies.forEach((en, i) => {
+        if(en.type === "car") iceTrails.push({x:en.x, y:en.y, life:80});
+        let speedMult = en.slow;
+        iceTrails.forEach(t => { if(Math.hypot(en.x-t.x, en.y-t.y) < 40 && en.type !== "car") speedMult = 4.0; });
+        
+        en.x -= en.s * speedMult;
+        ctx.font = (en.type === "boss" ? "80px" : "45px") + " Arial"; 
+        ctx.fillText(en.a, en.x, en.y);
+
+        if(en.curHp <= 0) { 
+            if(en.type === "boss") {
+                adv2Unlocked = true; localStorage.setItem('adv2Unlocked', 'true');
+                showMsg("DR. DÜŞMAN YENİLDİ!<br>BAYRAM GELDİ!", "#f1c40f", "40px", 5000);
+            }
+            enemies.splice(i,1); gold += 400; document.getElementById('gTxt').innerText = gold; 
+        }
+        if(en.x < 0) { hp -= 20; document.getElementById('hTxt').innerText = hp; enemies.splice(i,1); }
+    });
+
+    if(hp > 0) requestAnimationFrame(loop);
+    else { alert("OYUN BİTTİ! HAYIRLI RAMAZANLAR!"); location.reload(); }
+}
+</script>
+</body>
+  </html>
